@@ -11,6 +11,20 @@ BACKEND_URL = "http://localhost:7860"
 
 
 # ---------------------------------------------------------
+# Display helper
+# ---------------------------------------------------------
+
+def safe_text(text: str) -> str:
+    """Escape $ so Streamlit shows currency literally.
+
+    Streamlit renders text between two $ signs as LaTeX math, which turned
+    "$19 adult, $10 child" into "19 adult, 10 child". Escaping each $ as \\$
+    keeps fee amounts readable in both the answer and the source chunks.
+    """
+    return text.replace("$", "\\$")
+
+
+# ---------------------------------------------------------
 # Page configuration
 # ---------------------------------------------------------
 
@@ -125,18 +139,18 @@ if st.button("Submit", type="primary"):
                 if response_type == "Answer only":
 
                     st.subheader("Answer")
-                    st.write(result["answer"])
+                    st.write(safe_text(result["answer"]))
 
                 # -- Answer + Relevant Chunks -------------------
                 else:
 
                     st.subheader("Answer")
-                    st.write(result["answer"])
+                    st.write(safe_text(result["answer"]))
 
                     st.subheader("Relevant Chunks")
                     for i, chunk in enumerate(result["relevant_chunks"], start=1):
                         with st.expander(f"Chunk {i}"):
-                            st.write(chunk)
+                            st.write(safe_text(chunk))
 
             else:
                 st.error(
