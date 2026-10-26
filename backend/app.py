@@ -129,4 +129,156 @@ def handle_http_error(e):
 def handle_unexpected_error(e):
     """Catch anything unhandled, log it, and return a JSON 500."""
     log.exception("Unhandled error")
-    return error(500, "Internal
+    return error(500, "Internal server error.")
+
+
+def run_rag(p):
+    """Run the unchanged RAG pipeline with validated parameters."""
+    return rag(
+        query=p["query"],
+        k=p["k"],
+        model_name=p["model_name"],
+        temperature=p["temperature"],
+        top_p=p["top_p"],
+        max_tokens=p["max_tokens"],
+        vectorstore=vectorstore
+    )
+
+
+# ---------------------------------------------------------
+# Default route
+# ---------------------------------------------------------
+
+@rag_api.get("/")
+def home():
+    """
+    Handles GET requests to the root URL.
+    """
+    return "Welcome to the Aurora Stay RAG API!"
+
+
+# ---------------------------------------------------------
+# Relevant chunks endpoint
+# ---------------------------------------------------------
+
+@rag_api.post("/v1/relevant_chunks")
+def relevant_chunks():
+    """
+    Handles POST requests to /v1/relevant_chunks.
+
+    Example request:
+    {
+        "query": "What is the cancellation policy?",
+        "k": 4
+    }
+
+    Returns the top-k relevant chunks, 400 for invalid input,
+    or 503 if retrieval fails.
+    """
+    try:
+        p = parse_request(request.get_json(silent=True), need_generation=False)
+    except BadRequest as e:
+        return error(400, str(e))
+
+    try:
+        chunks = retrieve(query=p["query"], k=p["k"], vectorstore=vectorstore)
+    except Exception:
+        log.exception("Retrieval failed")
+        return error(503, "Retrieval is temporarily unavailable. Please try again.")
+
+    return jsonify({
+        "query": p["query"],
+        "k": p["k"],
+        "relevant_chunks": chunks
+    })
+
+
+# ---------------------------------------------------------
+# Answer with relevant chunks endpoint
+# ---------------------------------------------------------
+
+@rag_api.post("/v1/answer_with_relevant_chunks")
+def answer_with_relevant_chunks():
+    """
+    Handles POST requests to /v1/answer_with_relevant_chunks.
+
+    Example request:
+    {
+        "query": "What is the cancellation policy?",
+        "k": 4,
+        "model_name": "gpt-4o-mini",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "max_tokens": 512
+    }
+
+    Returns the answer and the chunks used, 400 for invalid input,
+    or 502 if the language model call fails.
+    """
+    try:
+        p = parse_request(request.get_json(silent=True), need_generation=True)
+    except BadRequest as e:
+        return error(400, str(e))
+
+    try:
+        answer, chunks = run_rag(p)
+    except Exception:
+        log.exception("Generation failed")
+        return error(502, "The language model did not respond. Please try again or look up the policy manually.")
+
+    return jsonify({
+        "query": p["query"],
+        "k": p["k"],
+        "model_name": p["model_name"],
+        "temperature": p["temperature"],
+        "top_p": p["top_p"],
+        "max_tokens": p["max_tokens"],
+        "relevant_chunks": chunks,
+        "answer": answer
+    })
+
+
+# ---------------------------------------------------------
+# Answer endpoint
+# ---------------------------------------------------------
+
+@rag_api.post("/v1/answer")
+def answer():
+    """
+    Handles POST requests to /v1/answer.
+
+    Example request:
+    {
+        "query": "What is the cancellation policy?",
+        "k": 4,
+        "model_name": "gpt-4o-mini",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "max_tokens": 512
+    }
+
+    Returns only the generated answer, 400 for invalid input,
+    or 502 if the language model call fails.
+    """
+    try:
+        p = parse_request(request.get_json(silent=True), need_generation=True)
+    except BadRequest as e:
+        return error(400, str(e))
+
+    try:
+        generated_answer, _ = run_rag(p)
+    except Exception:
+        log.exception("Generation failed")
+        return error(502, "The language model did not respond. Please try again or look up the policy manually.")
+
+    return jsonify({
+        "answer": generated_answer
+    })
+
+
+# ---------------------------------------------------------
+# Run the Flask application
+# ---------------------------------------------------------
+
+if __name__ == "__main__":
+    rag_api.run(debug=True)
